@@ -3,35 +3,35 @@
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Input;
 use Illuminate\Support\Str;
-use RuntimeException;
 
 trait SearchableTrait
 {
-    public function getQueryModeParameterName()
-    {
-        return 'mode';
-    }
+    /**
+     * Should return list of searchable fields.
+     *
+     * @return array
+     */
+    abstract public function getSearchableAttributes();
 
     /**
      * Applies filters.
      *
      * @param Builder $builder query builder
-     * @param array   $query   query parameters to use for search - Input::all() is used by default
+     * @param array $query     query parameters to use for search - Input::all() is used by default
      */
-    public function scopeFiltered(Builder $builder, array $query = [])
+    public function scopeFiltered(Builder $builder, array $query)
     {
-        $query = $query ?: array_except(Input::all(), $this->getQueryModeParameterName());
+        $query = is_null($query) ? Input::all() : $query;
 
         $constraints = $this->getConstraints($builder, $query);
-        $mode = $this->getQueryMode($query);
-        $this->applyConstraints($builder, $constraints, $mode);
+        $this->applyConstraints($builder, $constraints);
     }
 
     /**
      * Builds search constraints based on model's searchable fields and query parameters.
      *
      * @param Builder $builder query builder
-     * @param array   $query   query parameters
+     * @param array $query     query parameters
      *
      * @return array
      */
@@ -51,33 +51,32 @@ trait SearchableTrait
      * Check if field is searchable for given model.
      *
      * @param Builder $builder query builder
-     * @param string  $field   field name
+     * @param string $field    field name
      *
      * @return bool
      */
     protected function isFieldSearchable(Builder $builder, $field)
     {
-        $searchable = $this->_getSearchableAttributes($builder);
+        $searchable = $builder->getModel()->getSearchableAttributes();
 
-        return in_array($field, $searchable) || in_array('*', $searchable);
+        return in_array($field, $searchable);
     }
 
     /**
      * Applies constraints to query, allowing model to overwrite any of them.
      *
-     * @param Builder      $builder     query builder
+     * @param Builder $builder          query builder
      * @param Constraint[] $constraints constraints
-     * @param string       $mode        determines how constraints are applied ("or" or "and")
      */
-    protected function applyConstraints(Builder $builder, array $constraints, $mode = Constraint::MODE_AND)
+    protected function applyConstraints(Builder $builder, array $constraints)
     {
         foreach ($constraints as $field => $constraint) {
             if (is_array($constraint)) {
                 foreach ($constraint as $single_constraint) {
-                    $this->applyConstraint($builder, $field, $single_constraint, $mode);
+                    $this->applyConstraint($builder, $field, $single_constraint);
                 }
             } else {
-                $this->applyConstraint($builder, $field, $constraint, $mode);
+                $this->applyConstraint($builder, $field, $constraint);
             }
         }
     }
@@ -85,8 +84,8 @@ trait SearchableTrait
     /**
      * Calls constraint interceptor on model.
      *
-     * @param Builder    $builder    query builder
-     * @param string     $field      field on which constraint is applied
+     * @param Builder $builder       query builder
+     * @param string $field          field on which constraint is applied
      * @param Constraint $constraint constraint
      *
      * @return bool true if constraint was intercepted by model's method
@@ -131,41 +130,12 @@ trait SearchableTrait
      * @param Builder    $builder    query builder
      * @param string     $field      field name
      * @param Constraint $constraint constraint
-     * @param string     $mode       determines how constraint is applied ("or" or "and")
      */
-    protected function applyConstraint(Builder $builder, $field, $constraint, $mode = Constraint::MODE_AND)
+    protected function applyConstraint(Builder $builder, $field, $constraint)
     {
         // let model handle the constraint if it has the interceptor
         if (!$this->callInterceptor($builder, $field, $constraint)) {
-            $constraint->apply($builder, $field, $mode);
+            $constraint->apply($builder, $field);
         }
-    }
-
-    /**
-     * Determines how constraints are applied ("or" or "and")
-     *
-     * @param array $query query parameters
-     *
-     * @return mixed
-     */
-    protected function getQueryMode(array $query = [])
-    {
-        return array_get($query, $this->getQueryModeParameterName(), Constraint::MODE_AND);
-    }
-
-    /**
-     * @param Builder $builder
-     * @return array list of searchable attributes
-     */
-    protected function _getSearchableAttributes(Builder $builder) {
-        if (method_exists($builder->getModel(), 'getSearchableAttributes')) {
-          return $builder->getModel()->getSearchableAttributes();
-        }
-
-        if (property_exists($builder->getModel(), 'searchable')) {
-            return $builder->getModel()->searchable;
-        }
-
-        throw new RuntimeException(sprintf('Model %s must either implement getSearchableAttributes() or have $searchable property set', get_class($builder->getModel())));
     }
 }

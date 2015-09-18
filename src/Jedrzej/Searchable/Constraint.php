@@ -20,9 +20,6 @@ class Constraint
     const OPERATOR_IN = 'in';
     const OPERATOR_NOT_IN = 'not in';
 
-    const MODE_AND = 'and';
-    const MODE_OR = 'or';
-
     protected $operator;
 
     protected $value;
@@ -74,25 +71,36 @@ class Constraint
      *
      * @param Builder $builder query builder
      * @param string  $field   field name
-     * @param string  $mode    determines how constraint is added to existing query ("or" or "and")
      */
-    public function apply(Builder $builder, $field, $mode = Constraint::MODE_AND)
+    public function apply(Builder $builder, $field)
     {
-        if ($this->operator == Constraint::OPERATOR_IN) {
-            $method = $mode != static::MODE_OR ? 'whereIn' : 'orWhereIn';
-            $builder->$method($field, $this->value);
+        if (strpos($field,':') !== false) {
+
+            list($model,$column) = explode(':',$field);
+            $model =  explode('_',$model);
+            for ($i=1; $i < count($model) ; $i++) { 
+                $model[$i] = ucfirst($model[$i]);
+            }
+            $model = implode($model);
+            $field = str_replace(':', '.', $field);
+
+            $builder->whereHas($model,function($query) use($field) {
+                $this->apply($query, $field);
+            });
+        } elseif ($this->operator == Constraint::OPERATOR_IN) {
+            $builder->whereIn($field, $this->value);
         } elseif ($this->operator == Constraint::OPERATOR_NOT_IN) {
-            $method = $mode != static::MODE_OR ? 'whereNotIn' : 'orWhereNotIn';
-            $builder->$method($field, $this->value);
+            $builder->whereNotIn($field, $this->value);
         } else {
-            $method = $mode != static::MODE_OR ? 'where' : 'orWhere';
-            $builder->$method($field, $this->operator, $this->value);
+            $builder->where($field, $this->operator, $this->value);
         }
     }
 
+
+
     /**
-     * @param string $operator operator
-     * @param string $value    value
+     * @param string $operator    operator
+     * @param string $value       value
      * @param bool   $is_negation
      */
     protected function __construct($operator, $value, $is_negation = false)
